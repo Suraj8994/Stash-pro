@@ -3,14 +3,18 @@ import { useApp } from '../context/AppContext';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 import { StashProLogo } from './StashProLogo';
 import {
-  Building2,
   Bell,
   Database,
   User,
-  ChevronDown,
-  LogOut,
   Shield,
+  LogOut,
+  ChevronDown,
   Layers,
+  LayoutDashboard,
+  Smartphone,
+  CheckCircle,
+  XCircle,
+  Settings,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -19,6 +23,7 @@ interface HeaderProps {
   onOpenActivityLog: () => void;
   onOpenSupabaseModal: () => void;
   onOpenPasswordReset: (repCode?: string) => void;
+  onOpenUserProfile: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,45 +32,67 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenActivityLog,
   onOpenSupabaseModal,
   onOpenPasswordReset,
+  onOpenUserProfile,
 }) => {
-  const { currentUser, profiles, logout, setCurrentUser, notifications } = useApp();
+  const { currentUser, profiles, logout, setCurrentUser, notifications, toggleRepAttendance } = useApp();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
-
   const isConnected = isSupabaseConfigured();
 
   const handleSelectRep = (repCode: string) => {
-    const target = profiles.find((p) => p.rep_code === repCode);
-    if (target) {
-      setCurrentUser(target);
-      localStorage.setItem('dt_active_rep_code', target.rep_code);
+    const selected = profiles.find((p) => p.rep_code === repCode);
+    if (selected) {
+      setCurrentUser(selected);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dt_active_rep_code', selected.rep_code);
+      }
     }
     setUserDropdownOpen(false);
   };
 
+  const handleToggleMyAttendance = async () => {
+    if (!currentUser) return;
+    const newAbsentState = !currentUser.is_absent;
+    await toggleRepAttendance(currentUser.rep_code, newAbsentState);
+  };
+
   return (
-    <header className="sticky top-0 z-40 bg-[#03150d]/95 border-b border-[#0f4024]/80 backdrop-blur-md shadow-lg shadow-black/40 w-full max-w-full">
-      <div className="max-w-7xl w-full mx-auto px-2.5 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
-          {/* Stash-pro Product Inspired Logo */}
-          <div className="shrink-0">
-            <StashProLogo showTagline={false} size="sm" />
+    <header className="sticky top-0 z-40 w-full bg-[#03150d]/95 backdrop-blur-md border-b border-[#0f4024] shadow-lg shadow-black/40">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
+          {/* Brand Logo & Title */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <StashProLogo />
+            <div className="truncate">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm sm:text-base tracking-tight text-white font-sans">
+                  DistriTrack
+                </span>
+                <span className="hidden sm:inline-block text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-bold bg-[#d99b43]/20 text-[#fcd38d] border border-[#d99b43]/40">
+                  Field Ops
+                </span>
+              </div>
+              <p className="text-[10px] sm:text-xs text-emerald-400/80 truncate hidden xs:block">
+                Area Visit Cadence & Operations
+              </p>
+            </div>
           </div>
 
-          {/* Navigation View Switcher (Manager HQ vs Rep Tasks) */}
-          <div className="flex items-center bg-[#072417] p-1 rounded-xl border border-[#14532d]/80 shadow-inner shrink-0">
+          {/* Navigation View Switcher */}
+          <div className="flex items-center bg-[#072417] p-1 rounded-xl border border-[#14532d] shadow-inner">
             <button
               type="button"
               onClick={() => onViewChange('live_tracking')}
               className={`px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 currentView === 'live_tracking'
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/80 border border-emerald-400/40'
+                  ? 'bg-[#d99b43] text-slate-950 shadow-md shadow-amber-950/60 font-bold'
                   : 'text-emerald-300/80 hover:text-white hover:bg-[#0d3b24]'
               }`}
             >
-              <Building2 className="w-3.5 h-3.5" />
+              <LayoutDashboard className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Manager HQ</span>
               <span className="sm:hidden text-[11px]">HQ</span>
             </button>
+
             <button
               type="button"
               onClick={() => onViewChange('rep_tasks')}
@@ -82,12 +109,12 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Right Action Icons & Profile */}
-          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Supabase Status Pill */}
             <button
               type="button"
               onClick={onOpenSupabaseModal}
-              title="Click to check Supabase Postgres connection status"
+              title="Click to check Supabase connection status"
               className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all ${
                 isConnected
                   ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
@@ -95,19 +122,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{isConnected ? 'Supabase Live' : 'Supabase Ready'}</span>
-              <span className="relative flex h-2 w-2">
-                <span
-                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    isConnected ? 'bg-emerald-400' : 'bg-[#d99b43]'
-                  }`}
-                />
-                <span
-                  className={`relative inline-flex rounded-full h-2 w-2 ${
-                    isConnected ? 'bg-emerald-500' : 'bg-[#d99b43]'
-                  }`}
-                />
-              </span>
+              <span>{isConnected ? 'Supabase Live' : 'Database Ready'}</span>
             </button>
 
             {/* Live Activity Drawer Trigger */}
@@ -125,7 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            {/* Profile Pill & Quick Role Switch Dropdown */}
+            {/* Profile Pill & Menu */}
             {currentUser ? (
               <div className="relative">
                 <button
@@ -134,17 +149,29 @@ export const Header: React.FC<HeaderProps> = ({
                   className="flex items-center gap-1.5 sm:gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-xl bg-[#072417] border border-[#14532d] hover:border-emerald-500/60 transition-all text-left"
                 >
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 border ${
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 border relative ${
                       currentUser.role === 'admin'
                         ? 'bg-[#d99b43]/20 text-[#fbd795] border-[#d99b43]/40'
                         : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                     }`}
                   >
                     {currentUser.avatar || currentUser.name.slice(0, 2).toUpperCase()}
+                    {/* Attendance indicator dot */}
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#072417] ${
+                        currentUser.is_absent ? 'bg-rose-500' : 'bg-emerald-400'
+                      }`}
+                      title={currentUser.is_absent ? 'Absent / On Leave' : 'Present / On Duty'}
+                    />
                   </div>
                   <div className="hidden sm:block">
-                    <div className="text-xs font-semibold text-emerald-100 leading-tight">
-                      {currentUser.name.split(' ')[0]}
+                    <div className="text-xs font-semibold text-emerald-100 leading-tight flex items-center gap-1.5">
+                      <span>{currentUser.name}</span>
+                      {currentUser.is_absent && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-rose-950 border border-rose-500/50 text-rose-300 font-bold">
+                          Absent
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] text-emerald-400/80 font-mono">
                       #{currentUser.rep_code} • {currentUser.role === 'admin' ? 'HQ Admin' : 'Field Rep'}
@@ -155,20 +182,62 @@ export const Header: React.FC<HeaderProps> = ({
 
                 {/* Dropdown Menu */}
                 {userDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#062015] border border-[#175c34] shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
-                    <div className="p-2 border-b border-[#0f4024]">
-                      <p className="text-xs text-emerald-400/80">Logged in as:</p>
-                      <p className="text-sm font-semibold text-white">{currentUser.name}</p>
-                      <p className="text-[11px] text-emerald-300/70 font-mono">
-                        Rep #{currentUser.rep_code} • {currentUser.territory || 'Operations HQ'}
+                  <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-[#062015] border border-[#175c34] shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="p-2.5 border-b border-[#0f4024]">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] text-emerald-400/80">Active User</p>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#03150d] text-[#fcd38d] border border-[#d99b43]/30">
+                          {currentUser.role === 'admin' ? 'Admin' : 'Field Rep'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-white mt-0.5">{currentUser.name}</p>
+                      <p className="text-xs text-emerald-300/80 font-mono">
+                        Mobile: {currentUser.phone || 'Not set'}
+                      </p>
+                      <p className="text-[11px] text-emerald-400/60 font-mono">
+                        Rep Code #{currentUser.rep_code} • {currentUser.territory || 'Operations HQ'}
                       </p>
                     </div>
 
+                    {/* Attendance Toggle */}
+                    <div className="p-2 border-b border-[#0f4024]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-emerald-200">Duty Status:</span>
+                        <button
+                          type="button"
+                          onClick={handleToggleMyAttendance}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                            currentUser.is_absent
+                              ? 'bg-rose-950/70 border-rose-500/50 text-rose-300 hover:bg-rose-900/60'
+                              : 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
+                          }`}
+                        >
+                          {currentUser.is_absent ? (
+                            <>
+                              <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                              <span>Absent (On Leave)</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Present (On Duty)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-emerald-400/60 mt-1">
+                        {currentUser.is_absent
+                          ? 'Your assigned areas are delegated to backup personnel.'
+                          : 'You are handling primary scheduled area visits.'}
+                      </p>
+                    </div>
+
+                    {/* Quick Switch */}
                     <div className="py-2">
                       <p className="text-[10px] uppercase font-bold text-emerald-400/70 px-2 pb-1 tracking-wider">
-                        Switch Active Rep Identity
+                        Switch Active Identity
                       </p>
-                      <div className="max-h-44 overflow-y-auto space-y-1">
+                      <div className="max-h-36 overflow-y-auto space-y-1">
                         {profiles.map((p) => (
                           <button
                             key={p.id}
@@ -180,7 +249,12 @@ export const Header: React.FC<HeaderProps> = ({
                                 : 'text-slate-300 hover:bg-[#0b3320]'
                             }`}
                           >
-                            <span className="truncate">
+                            <span className="truncate flex items-center gap-1.5">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  p.is_absent ? 'bg-rose-500' : 'bg-emerald-400'
+                                }`}
+                              />
                               {p.name} {p.role === 'admin' ? '(Admin)' : ''}
                             </span>
                             <span className="font-mono text-[10px] text-emerald-400">#{p.rep_code}</span>
@@ -189,18 +263,32 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </div>
 
+                    {/* Account Settings & Mobile Update */}
                     <div className="pt-2 border-t border-[#0f4024] flex flex-col gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserDropdownOpen(false);
+                          onOpenUserProfile();
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#fbd795] hover:bg-[#0b3320] flex items-center gap-1.5"
+                      >
+                        <Settings className="w-3.5 h-3.5 text-[#d99b43]" />
+                        {currentUser.role === 'admin' ? 'Change Admin Name & Mobile' : 'Update Mobile & Profile'}
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
                           setUserDropdownOpen(false);
                           onOpenPasswordReset(currentUser.rep_code);
                         }}
-                        className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#fbd795] hover:bg-[#0b3320] flex items-center gap-1.5"
+                        className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-emerald-300 hover:bg-[#0b3320] flex items-center gap-1.5"
                       >
-                        <Shield className="w-3.5 h-3.5 text-[#d99b43]" />
-                        Admin Reset Password
+                        <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                        Admin Password Reset
                       </button>
+
                       <button
                         type="button"
                         onClick={() => {

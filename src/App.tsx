@@ -12,6 +12,7 @@ import { CheckInModal } from './components/modals/CheckInModal';
 import { AdminAreaModal } from './components/modals/AdminAreaModal';
 import { AdminRepModal } from './components/modals/AdminRepModal';
 import { PasswordResetModal } from './components/modals/PasswordResetModal';
+import { UserProfileModal } from './components/modals/UserProfileModal';
 import { ActivityLogDrawer } from './components/modals/ActivityLogDrawer';
 import { SupabaseConfigModal } from './components/modals/SupabaseConfigModal';
 import { Area } from './types/database';
@@ -31,6 +32,7 @@ function MainLayout() {
   const [targetPasswordResetRepCode, setTargetPasswordResetRepCode] = useState<string | undefined>(undefined);
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
+  const [userProfileModalOpen, setUserProfileModalOpen] = useState(false);
 
   const handleOpenAddArea = () => {
     setEditingArea(null);
@@ -56,6 +58,7 @@ function MainLayout() {
         onOpenActivityLog={() => setActivityLogOpen(true)}
         onOpenSupabaseModal={() => setSupabaseModalOpen(true)}
         onOpenPasswordReset={handleOpenPasswordReset}
+        onOpenUserProfile={() => setUserProfileModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -80,6 +83,7 @@ function MainLayout() {
               <RepTasksView
                 onOpenCheckIn={(area) => setActiveCheckInArea(area)}
                 onOpenPasswordReset={handleOpenPasswordReset}
+                onOpenUserProfile={() => setUserProfileModalOpen(true)}
               />
             )}
           </>
@@ -114,6 +118,7 @@ function MainLayout() {
             setAdminRepModalOpen(false);
             handleOpenPasswordReset(code);
           }}
+          onOpenUserProfile={() => setUserProfileModalOpen(true)}
         />
       )}
 
@@ -125,6 +130,13 @@ function MainLayout() {
             setPasswordResetOpen(false);
             setTargetPasswordResetRepCode(undefined);
           }}
+        />
+      )}
+
+      {userProfileModalOpen && (
+        <UserProfileModal
+          isOpen={userProfileModalOpen}
+          onClose={() => setUserProfileModalOpen(false)}
         />
       )}
 

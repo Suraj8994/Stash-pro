@@ -7,13 +7,12 @@ import {
 import {
   X,
   Database,
-  CheckCircle2,
-  Copy,
-  Check,
   ExternalLink,
   ShieldCheck,
   AlertCircle,
   Key,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface SupabaseConfigModalProps {
@@ -24,10 +23,9 @@ interface SupabaseConfigModalProps {
 export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen, onClose }) => {
   const config = getSupabaseConfig();
   const isConfigured = isSupabaseConfigured();
-
   const [inputUrl, setInputUrl] = useState(config.url || '');
   const [inputKey, setInputKey] = useState('');
-  const [copied, setCopied] = useState<string | null>(null);
+  const [showKey, setShowKey] = useState(false);
 
   if (!isOpen) return null;
 
@@ -40,12 +38,6 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
     setCustomSupabaseCredentials('', '');
     setInputUrl('');
     setInputKey('');
-  };
-
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
   };
 
   return (
@@ -89,12 +81,12 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
               <div className="font-semibold text-sm">
                 {isConfigured
                   ? 'Connected to Live Supabase Project'
-                  : 'Running in Standby / Interactive Preview Mode'}
+                  : 'Running in Standby / Interactive Local Mode'}
               </div>
               <p className="text-xs text-emerald-200/80 mt-1 leading-relaxed">
                 {isConfigured
                   ? `Your app is syncing directly with Supabase Postgres at ${config.url}. Realtime updates and RLS are active.`
-                  : 'DistriTrack is currently running with full interactive seed data (Admin & 4 FMCG Reps, 8 live status outlets). You can test all check-ins, status calculations, and modals.'}
+                  : 'DistriTrack is currently running with full interactive local storage (Admin Anil Sakpal & sales reps, live areas). All data persists across page refresh.'}
               </p>
             </div>
           </div>
@@ -127,7 +119,6 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
               <Key className="w-3.5 h-3.5 text-[#d99b43]" />
               Test Direct Supabase Connection (Optional)
             </h4>
-
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-emerald-300/80">VITE_SUPABASE_URL</label>
               <input
@@ -138,18 +129,26 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({ isOpen
                 className="w-full bg-[#03150d] border border-[#14532d] rounded-xl px-3 py-2 text-xs text-emerald-100 placeholder-emerald-700/60 focus:outline-none focus:border-[#d99b43] font-mono"
               />
             </div>
-
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-emerald-300/80">VITE_SUPABASE_ANON_KEY</label>
-              <input
-                type="password"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                value={inputKey}
-                onChange={(e) => setInputKey(e.target.value)}
-                className="w-full bg-[#03150d] border border-[#14532d] rounded-xl px-3 py-2 text-xs text-emerald-100 placeholder-emerald-700/60 focus:outline-none focus:border-[#d99b43] font-mono"
-              />
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full bg-[#03150d] border border-[#14532d] rounded-xl pl-3 pr-10 py-2 text-xs text-emerald-100 placeholder-emerald-700/60 focus:outline-none focus:border-[#d99b43] font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  title={showKey ? 'Hide key' : 'Show key'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 hover:text-white transition-colors"
+                >
+                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
-
             <div className="flex items-center justify-between pt-1">
               <button
                 type="button"

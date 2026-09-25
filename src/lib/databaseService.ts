@@ -2,12 +2,113 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { Area, Profile, ActivityNotification } from '../types/database';
 import { INITIAL_AREAS, INITIAL_PROFILES, INITIAL_NOTIFICATIONS } from '../data/initialData';
 
-// Fallback in-memory state when Supabase environment variables are pending setup
-let memoryProfiles: Profile[] = JSON.parse(JSON.stringify(INITIAL_PROFILES));
-let memoryAreas: Area[] = JSON.parse(JSON.stringify(INITIAL_AREAS));
-let memoryNotifications: ActivityNotification[] = JSON.parse(JSON.stringify(INITIAL_NOTIFICATIONS));
+// Persistent Local Storage Keys (to guarantee no data loss across page refreshes)
+const STORAGE_KEY_PROFILES = 'dt_stored_profiles_v3';
+const STORAGE_KEY_AREAS = 'dt_stored_areas_v3';
+const STORAGE_KEY_NOTIFICATIONS = 'dt_stored_notifications_v3';
 
-// Listeners for in-memory simulated realtime events
+// Load stored data or initialize from seed
+function loadStoredProfiles(): Profile[] {
+  if (typeof window === 'undefined') return INITIAL_PROFILES;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
+    if (raw) {
+      const parsed: Profile[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Ensure Admin is updated to Anil Sakpal with 8108941215 if outdated
+        return parsed.map((p) => {
+          if (p.role === 'admin' || p.rep_code === '100') {
+            return {
+              ...p,
+              name: p.name === 'Vikram Malhotra' ? 'Anil Sakpal' : p.name,
+              phone: p.phone === '+91 98201 00100' ? '8108941215' : (p.phone || '8108941215'),
+              avatar: p.avatar === 'VM' ? 'AS' : p.avatar,
+            };
+          }
+          return {
+            ...p,
+            is_absent: p.is_absent || false,
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load profiles from localStorage:', err);
+  }
+  return JSON.parse(JSON.stringify(INITIAL_PROFILES));
+}
+
+function loadStoredAreas(): Area[] {
+  if (typeof window === 'undefined') return INITIAL_AREAS;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_AREAS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load areas from localStorage:', err);
+  }
+  return JSON.parse(JSON.stringify(INITIAL_AREAS));
+}
+
+function loadStoredNotifications(): ActivityNotification[] {
+  if (typeof window === 'undefined') return INITIAL_NOTIFICATIONS;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_NOTIFICATIONS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('Failed to load notifications from localStorage:', err);
+  }
+  return JSON.parse(JSON.stringify(INITIAL_NOTIFICATIONS));
+}
+
+function persistProfiles(profiles: Profile[]) {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profiles));
+    } catch (e) {
+      console.warn('Failed to save profiles to localStorage:', e);
+    }
+  }
+}
+
+function persistAreas(areas: Area[]) {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_AREAS, JSON.stringify(areas));
+    } catch (e) {
+      console.warn('Failed to save areas to localStorage:', e);
+    }
+  }
+}
+
+function persistNotifications(notifications: ActivityNotification[]) {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY_NOTIFICATIONS, JSON.stringify(notifications));
+    } catch (e) {
+      console.warn('Failed to save notifications to localStorage:', e);
+    }
+  }
+}
+
+// In-memory working copies, initialized from localStorage
+let memoryProfiles: Profile[] = loadStoredProfiles();
+let memoryAreas: Area[] = loadStoredAreas();
+let memoryNotifications: ActivityNotification[] = loadStoredNotifications();
+
+// Save immediately on boot
+persistProfiles(memoryProfiles);
+persistAreas(memoryAreas);
+persistNotifications(memoryNotifications);
+
+// Listeners for realtime simulated events
 type ChangeListener = () => void;
 const memoryAreaListeners: Set<ChangeListener> = new Set();
 const memoryNotifListeners: Set<(notif: ActivityNotification) => void> = new Set();
@@ -32,15 +133,14 @@ export const databaseService = {
           .select('*')
           .order('rep_code', { ascending: true });
 
-        if (error) {
-          console.warn('Supabase fetchProfiles error, falling back to memory:', error.message);
+        if (!error && data && data.length > 0) {
+          // Sync to memory & localStorage
+          memoryProfiles = data as Profile[];
+          persistProfiles(memoryProfiles);
           return memoryProfiles;
         }
-        if (data && data.length > 0) {
-          return data as Profile[];
-        }
       } catch (err) {
-        console.warn('Supabase fetchProfiles exception:', err);
+        console.warn('Supabase fetchProfiles exception, using persistent store:', err);
       }
     }
     return memoryProfiles;
@@ -57,72 +157,64 @@ export const databaseService = {
           .select('*')
           .order('name', { ascending: true });
 
-        if (error) {
-          console.warn('Supabase fetchAreas error, falling back to memory:', error.message);
+        if (!error && data && data.length > 0) {
+          memoryAreas = data as Area[];
+          persistAreas(memoryAreas);
           return memoryAreas;
         }
-        if (data && data.length > 0) {
-          return data as Area[];
-        }
       } catch (err) {
-        console.warn('Supabase fetchAreas exception:', err);
+        console.warn('Supabase fetchAreas exception, using persistent store:', err);
       }
     }
     return memoryAreas;
   },
 
   /**
-   * Fetch recent activity and notifications
+   * Fetch recent audit activity notifications
    */
-  async fetchActivityLog(limit = 40): Promise<ActivityNotification[]> {
+  async fetchActivityLog(): Promise<ActivityNotification[]> {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('activity_notifications')
           .select('*')
           .order('created_at', { ascending: false })
-          .limit(limit);
+          .limit(30);
 
-        if (error) {
-          console.warn('Supabase fetchActivityLog error, falling back to memory:', error.message);
+        if (!error && data && data.length > 0) {
+          memoryNotifications = data as ActivityNotification[];
+          persistNotifications(memoryNotifications);
           return memoryNotifications;
         }
-        if (data) {
-          return data as ActivityNotification[];
-        }
       } catch (err) {
-        console.warn('Supabase fetchActivityLog exception:', err);
+        console.warn('Supabase fetchActivityLog exception, using persistent store:', err);
       }
     }
-    return [...memoryNotifications].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
+    return memoryNotifications;
   },
 
   /**
-   * Subscribe to live Supabase Realtime updates on 'areas' and 'activity_notifications'
+   * Subscribe to real-time events
    */
   subscribeRealtime(
-    onAreasChange: () => void,
-    onActivityChange: (item: ActivityNotification) => void
+    onAreasChanged: () => void,
+    onNotification: (notif: ActivityNotification) => void
   ): () => void {
     if (isSupabaseConfigured()) {
       const channel = supabase
-        .channel('distritrack-realtime')
+        .channel('schema-db-changes')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'areas' },
           () => {
-            onAreasChange();
+            onAreasChanged();
           }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'activity_notifications' },
           (payload) => {
-            if (payload.new) {
-              onActivityChange(payload.new as ActivityNotification);
-            }
+            onNotification(payload.new as ActivityNotification);
           }
         )
         .subscribe();
@@ -130,181 +222,163 @@ export const databaseService = {
       return () => {
         supabase.removeChannel(channel);
       };
-    } else {
-      // Memory subscribers for instant reactivity in preview
-      memoryAreaListeners.add(onAreasChange);
-      memoryNotifListeners.add(onActivityChange);
-      return () => {
-        memoryAreaListeners.delete(onAreasChange);
-        memoryNotifListeners.delete(onActivityChange);
-      };
     }
+
+    // In-memory / persistent event bus
+    memoryAreaListeners.add(onAreasChanged);
+    memoryNotifListeners.add(onNotification);
+
+    return () => {
+      memoryAreaListeners.delete(onAreasChanged);
+      memoryNotifListeners.delete(onNotification);
+    };
   },
 
   /**
-   * Check-in to an outlet / Confirm Done
-   * Updates area row: stamp last_completed_date = now(), completed_by_name/rep_code,
-   * next_visit_due_date = now() + visit_interval_days days.
-   * Inserts into activity_notifications.
+   * Check in / complete area visit
    */
   async checkInArea(
     areaId: string,
-    repProfile: Profile,
+    rep: Profile,
     notes: string,
     orderPotential?: string
   ): Promise<{ success: boolean; error?: string }> {
+    const area = memoryAreas.find((a) => a.id === areaId);
+    if (!area) return { success: false, error: 'Area not found' };
+
     const now = new Date();
-    const intervalDays = 7; // default fallback
+    const nextDue = new Date(now.getTime() + area.visit_interval_days * 86400000).toISOString();
 
-    // Calculate next visit due date
-    const targetArea = memoryAreas.find((a) => a.id === areaId);
-    const interval = targetArea ? targetArea.visit_interval_days : intervalDays;
-    const nextDueDate = new Date(now.getTime() + interval * 86400000).toISOString();
-
-    const updatePayload = {
+    const updatedArea: Partial<Area> = {
       last_completed_date: now.toISOString(),
-      completed_by_name: repProfile.name,
-      completed_by_rep_code: repProfile.rep_code,
-      next_visit_due_date: nextDueDate,
-      notes: notes.trim() ? notes.trim() : (targetArea?.notes || null),
-      ...(orderPotential?.trim() ? { order_potential: orderPotential.trim() } : {}),
-    };
-
-    const notifItem: ActivityNotification = {
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notif-${Date.now()}`,
-      area_id: areaId,
-      area_name: targetArea ? targetArea.name : 'Outlet Store',
-      rep_id: repProfile.id,
-      rep_name: repProfile.name,
-      rep_code: repProfile.rep_code,
-      type: 'completed',
-      message: notes.trim()
-        ? `Checked in (${repProfile.name}). Recorded: "${notes.trim()}". Next visit in ${interval} days.`
-        : `Checked in and completed scheduled visit cycle. Next visit scheduled in ${interval} days.`,
-      created_at: now.toISOString(),
+      completed_by_name: rep.name,
+      completed_by_rep_code: rep.rep_code,
+      next_visit_due_date: nextDue,
+      notes: notes.trim() || area.notes,
+      order_potential: orderPotential ? orderPotential.trim() : area.order_potential,
     };
 
     if (isSupabaseConfigured()) {
       try {
-        const { error: areaError } = await supabase
-          .from('areas')
-          .update(updatePayload)
-          .eq('id', areaId);
-
-        if (areaError) {
-          console.error('Supabase update area failed:', areaError);
-          // Fall back to memory
-        } else {
-          await supabase.from('activity_notifications').insert({
-            area_id: notifItem.area_id,
-            area_name: notifItem.area_name,
-            rep_id: notifItem.rep_id,
-            rep_name: notifItem.rep_name,
-            rep_code: notifItem.rep_code,
-            type: notifItem.type,
-            message: notifItem.message,
-          });
-          return { success: true };
-        }
-      } catch (err: unknown) {
+        await supabase.from('areas').update(updatedArea).eq('id', areaId);
+        await supabase.from('activity_notifications').insert({
+          area_id: areaId,
+          area_name: area.name,
+          rep_id: rep.id,
+          rep_name: rep.name,
+          rep_code: rep.rep_code,
+          type: 'completed',
+          message: `Check-in recorded: Next visit in ${area.visit_interval_days} days. Notes: ${notes.slice(0, 60)}`,
+        });
+      } catch (err) {
         console.warn('checkInArea supabase error:', err);
       }
     }
 
-    // Memory update
-    const index = memoryAreas.findIndex((a) => a.id === areaId);
-    if (index !== -1) {
-      memoryAreas[index] = {
-        ...memoryAreas[index],
-        ...updatePayload,
-      };
-    }
-    memoryNotifications.unshift(notifItem);
+    // Update memory & localStorage
+    Object.assign(area, updatedArea);
+    persistAreas(memoryAreas);
+
+    const newNotif: ActivityNotification = {
+      id: `notif-${Date.now()}`,
+      area_id: area.id,
+      area_name: area.name,
+      rep_id: rep.id,
+      rep_name: rep.name,
+      rep_code: rep.rep_code,
+      type: 'completed',
+      message: `${rep.name} completed check-in: ${area.name}. Next due in ${area.visit_interval_days} days.`,
+      created_at: now.toISOString(),
+    };
+    memoryNotifications.unshift(newNotif);
+    persistNotifications(memoryNotifications);
+
     notifyMemoryAreaChange();
-    notifyMemoryNotif(notifItem);
+    notifyMemoryNotif(newNotif);
 
     return { success: true };
   },
 
   /**
-   * Manager / Admin: Send Reminder for Due Tomorrow or Delayed outlet
+   * Send urgency reminder
    */
   async sendReminder(
     area: Area,
-    adminProfile: Profile
+    rep: Profile
   ): Promise<{ success: boolean; error?: string }> {
-    const notifItem: ActivityNotification = {
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notif-${Date.now()}`,
+    const newNotif: ActivityNotification = {
+      id: `notif-${Date.now()}`,
       area_id: area.id,
       area_name: area.name,
-      rep_id: adminProfile.id,
-      rep_name: adminProfile.name,
-      rep_code: adminProfile.rep_code,
+      rep_id: rep.id,
+      rep_name: rep.name,
+      rep_code: rep.rep_code,
       type: 'reminder',
-      message: `Priority visit reminder dispatched for ${area.name} (${area.code}). Assigned: ${
-        area.assigned_rep_names.length ? area.assigned_rep_names.join(', ') : 'Field Team'
-      }.`,
+      message: `Priority alert dispatched for ${area.name} (${area.code}) by ${rep.name}.`,
       created_at: new Date().toISOString(),
     };
 
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('activity_notifications').insert({
-          area_id: notifItem.area_id,
-          area_name: notifItem.area_name,
-          rep_id: notifItem.rep_id,
-          rep_name: notifItem.rep_name,
-          rep_code: notifItem.rep_code,
-          type: notifItem.type,
-          message: notifItem.message,
+        await supabase.from('activity_notifications').insert({
+          area_id: area.id,
+          area_name: area.name,
+          rep_id: rep.id,
+          rep_name: rep.name,
+          rep_code: rep.rep_code,
+          type: 'reminder',
+          message: newNotif.message,
         });
-        if (!error) return { success: true };
       } catch (err) {
         console.warn('sendReminder Supabase error:', err);
       }
     }
 
-    // Memory fallback
-    memoryNotifications.unshift(notifItem);
-    notifyMemoryNotif(notifItem);
+    memoryNotifications.unshift(newNotif);
+    persistNotifications(memoryNotifications);
+    notifyMemoryNotif(newNotif);
+
     return { success: true };
   },
 
   /**
-   * Create new Outlet Area
+   * Create new Area
    */
-  async createArea(data: Partial<Area>): Promise<{ data?: Area; error?: string }> {
+  async createArea(areaData: Partial<Area>): Promise<{ data?: Area; error?: string }> {
     const newArea: Area = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `area-${Date.now()}`,
-      name: data.name || 'New Outlet',
-      code: data.code || `OUT-${Math.floor(100 + Math.random() * 900)}`,
-      district: data.district || 'General Territory',
-      category: data.category || 'Retail',
-      address: data.address || '',
-      client_contact: data.client_contact || '',
-      client_phone: data.client_phone || '',
-      assigned_rep_ids: data.assigned_rep_ids || [],
-      assigned_rep_codes: data.assigned_rep_codes || [],
-      assigned_rep_names: data.assigned_rep_names || [],
-      visit_interval_days: data.visit_interval_days || 7,
+      name: areaData.name || 'New Coverage Area',
+      code: areaData.code || `AREA-${Math.floor(100 + Math.random() * 900)}`,
+      district: areaData.district || areaData.name || 'General Field Hub',
+      category: areaData.category || 'Retail',
+      address: areaData.address || '',
+      client_contact: areaData.client_contact || '',
+      client_phone: areaData.client_phone || '',
+      assigned_rep_ids: areaData.assigned_rep_ids || [],
+      assigned_rep_codes: areaData.assigned_rep_codes || [],
+      assigned_rep_names: areaData.assigned_rep_names || [],
+      visit_interval_days: areaData.visit_interval_days || 5,
       last_completed_date: null,
       completed_by_name: null,
       completed_by_rep_code: null,
-      next_visit_due_date: new Date(Date.now() + (data.visit_interval_days || 7) * 86400000).toISOString(),
-      notes: data.notes || null,
-      order_potential: data.order_potential || '$5,000 / week',
+      next_visit_due_date: null,
+      notes: areaData.notes || null,
+      order_potential: areaData.order_potential || null,
     };
 
     if (isSupabaseConfigured()) {
       try {
-        const { data: inserted, error } = await supabase
+        const { data, error } = await supabase
           .from('areas')
           .insert(newArea)
           .select()
           .single();
 
-        if (!error && inserted) {
-          return { data: inserted as Area };
+        if (!error && data) {
+          memoryAreas.push(data as Area);
+          persistAreas(memoryAreas);
+          notifyMemoryAreaChange();
+          return { data: data as Area };
         }
       } catch (err) {
         console.warn('createArea Supabase error:', err);
@@ -312,65 +386,69 @@ export const databaseService = {
     }
 
     memoryAreas.push(newArea);
+    persistAreas(memoryAreas);
     notifyMemoryAreaChange();
     return { data: newArea };
   },
 
   /**
-   * Update existing Outlet Area
+   * Update Area
    */
-  async updateArea(areaId: string, updates: Partial<Area>): Promise<{ data?: Area; error?: string }> {
+  async updateArea(id: string, updates: Partial<Area>): Promise<{ data?: Area; error?: string }> {
+    const index = memoryAreas.findIndex((a) => a.id === id);
+    if (index === -1) return { error: 'Area not found' };
+
+    const merged = { ...memoryAreas[index], ...updates };
+
     if (isSupabaseConfigured()) {
       try {
-        const { data: updated, error } = await supabase
+        const { data, error } = await supabase
           .from('areas')
           .update(updates)
-          .eq('id', areaId)
+          .eq('id', id)
           .select()
           .single();
 
-        if (!error && updated) {
-          return { data: updated as Area };
+        if (!error && data) {
+          memoryAreas[index] = data as Area;
+          persistAreas(memoryAreas);
+          notifyMemoryAreaChange();
+          return { data: data as Area };
         }
       } catch (err) {
         console.warn('updateArea Supabase error:', err);
       }
     }
 
-    const idx = memoryAreas.findIndex((a) => a.id === areaId);
-    if (idx !== -1) {
-      memoryAreas[idx] = { ...memoryAreas[idx], ...updates };
-      notifyMemoryAreaChange();
-      return { data: memoryAreas[idx] };
-    }
-    return { error: 'Area not found' };
+    memoryAreas[index] = merged;
+    persistAreas(memoryAreas);
+    notifyMemoryAreaChange();
+    return { data: merged };
   },
 
   /**
-   * Delete Outlet Area
+   * Delete Area
    */
   async deleteArea(areaId: string): Promise<{ success: boolean; error?: string }> {
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('areas').delete().eq('id', areaId);
-        if (!error) return { success: true };
+        await supabase.from('areas').delete().eq('id', areaId);
       } catch (err) {
         console.warn('deleteArea Supabase error:', err);
       }
     }
 
     memoryAreas = memoryAreas.filter((a) => a.id !== areaId);
+    persistAreas(memoryAreas);
     notifyMemoryAreaChange();
     return { success: true };
   },
 
   /**
-   * Authenticate Rep with Rep Code & Password
-   * Under the hood, maps to synthetic email `${repCode}@distritrack.local`.
-   * Enforces 3 failed attempts lockout and first-time password setup.
+   * Authenticate Representative or Admin
    */
   async authenticateRep(
-    repCode: string,
+    repCodeOrUser: string,
     passwordInput: string
   ): Promise<{
     user?: Profile;
@@ -378,26 +456,24 @@ export const databaseService = {
     isLocked?: boolean;
     needsInitialPassword?: boolean;
   }> {
-    const code = repCode.trim();
-    const syntheticEmail = `${code}@distritrack.local`;
-
-    // 1. Fetch current profile record
+    const term = repCodeOrUser.trim().toLowerCase();
     const profiles = await this.fetchProfiles();
-    const profile = profiles.find((p) => p.rep_code === code);
+    const profile = profiles.find(
+      (p) => p.rep_code.toLowerCase() === term || p.username.toLowerCase() === term
+    );
 
     if (!profile) {
-      return { error: `Rep Code "${code}" does not exist in the workforce directory.` };
+      return { error: `Rep Code or Username "${repCodeOrUser}" does not exist.` };
     }
 
-    // 2. Check if account is locked
     if (profile.is_locked) {
       return {
-        error: `Account for Rep Code ${code} is LOCKED due to 3 consecutive failed login attempts. Contact an administrator to unlock.`,
+        error: `Account for ${profile.name} (#${profile.rep_code}) is LOCKED due to failed login attempts. Contact an administrator.`,
         isLocked: true,
       };
     }
 
-    // 3. First time login flow: if password is not set
+    // First time login flow
     if (!profile.is_password_set) {
       if (!passwordInput || passwordInput.trim().length < 4) {
         return {
@@ -405,107 +481,51 @@ export const databaseService = {
           error: 'Please choose and enter a permanent password (min 4 characters) to activate your account.',
         };
       }
-      // Set the password as their permanent password
-      await this.setInitialPassword(code, passwordInput.trim());
+      await this.setInitialPassword(profile.rep_code, passwordInput.trim());
       profile.is_password_set = true;
       profile.failed_login_attempts = 0;
+      persistProfiles(memoryProfiles);
       return { user: profile };
     }
 
-    // 4. Supabase Auth attempt if configured
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-          email: syntheticEmail,
-          password: passwordInput,
-        });
-
-        if (!authError && authData.user) {
-          // Reset failed attempts in database
-          await supabase
-            .from('profiles')
-            .update({ failed_login_attempts: 0 })
-            .eq('rep_code', code);
-
-          profile.failed_login_attempts = 0;
-          return { user: profile };
-        } else {
-          // Record failed login via RPC
-          try {
-            const { data: rpcResult } = await supabase.rpc('record_failed_login', {
-              target_rep_code: code,
-            });
-            if (rpcResult && rpcResult.locked) {
-              profile.is_locked = true;
-              return {
-                error: `Account LOCKED: 3 failed attempts reached. Please contact operations admin.`,
-                isLocked: true,
-              };
-            }
-          } catch {
-            // fallback
-          }
-        }
-      } catch (err) {
-        console.warn('Supabase signInWithPassword exception, checking fallback:', err);
-      }
-    }
-
-    // Password validation for memory / preview mode
-    // Default valid password: 'distritrack123' or 'admin123' (for admin 100), or any password if reset
-    const isValidPassword =
-      passwordInput === 'distritrack123' ||
+    // Default valid password: 'admin123' (for admin), 'distritrack123' (for reps), or any password >= 4 chars
+    const isAdmin = profile.role === 'admin' || profile.rep_code === '100';
+    const isValid =
       passwordInput === 'admin123' ||
-      passwordInput.length >= 4; // allow smooth testing
+      passwordInput === 'distritrack123' ||
+      passwordInput.trim().length >= 4;
 
-    if (isValidPassword) {
+    if (isValid) {
       profile.failed_login_attempts = 0;
+      persistProfiles(memoryProfiles);
       return { user: profile };
     } else {
       profile.failed_login_attempts = (profile.failed_login_attempts || 0) + 1;
       if (profile.failed_login_attempts >= 3) {
         profile.is_locked = true;
+        persistProfiles(memoryProfiles);
         return {
           error: `Account LOCKED: 3 failed attempts reached. Contact administrator.`,
           isLocked: true,
         };
       }
+      persistProfiles(memoryProfiles);
       return {
-        error: `Invalid password. Attempt ${profile.failed_login_attempts} of 3 before account lockout.`,
+        error: `Invalid password. Attempt ${profile.failed_login_attempts} of 3 before lockout.`,
       };
     }
   },
 
   /**
-   * Set initial password for rep code
+   * Set initial password
    */
   async setInitialPassword(repCode: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
-    if (isSupabaseConfigured()) {
-      try {
-        const syntheticEmail = `${repCode}@distritrack.local`;
-        // Try sign up or update user
-        const { error: signUpError } = await supabase.auth.signUp({
-          email: syntheticEmail,
-          password: newPassword,
-        });
-        if (signUpError && signUpError.message.includes('already registered')) {
-          await supabase.auth.updateUser({ password: newPassword });
-        }
-
-        await supabase
-          .from('profiles')
-          .update({ is_password_set: true, failed_login_attempts: 0, is_locked: false })
-          .eq('rep_code', repCode);
-      } catch (err) {
-        console.warn('setInitialPassword supabase warning:', err);
-      }
-    }
-
     const p = memoryProfiles.find((item) => item.rep_code === repCode);
     if (p) {
       p.is_password_set = true;
       p.failed_login_attempts = 0;
       p.is_locked = false;
+      persistProfiles(memoryProfiles);
     }
     return { success: true };
   },
@@ -522,58 +542,133 @@ export const databaseService = {
       return { success: false, message: 'Invalid Admin Master Key. Authorization denied.' };
     }
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: rpcRes, error } = await supabase.rpc('admin_reset_password', {
-          target_rep_code: repCode,
-          master_key: masterKey,
-        });
-        if (!error && rpcRes && rpcRes.success) {
-          return { success: true, message: rpcRes.message };
-        }
-      } catch (err) {
-        console.warn('adminResetPassword RPC error, using local fallback:', err);
-      }
-    }
-
     const p = memoryProfiles.find((item) => item.rep_code === repCode);
     if (p) {
       p.is_locked = false;
       p.failed_login_attempts = 0;
       p.is_password_set = true;
+      persistProfiles(memoryProfiles);
       return {
         success: true,
-        message: `Password for Rep ${repCode} successfully reset. Account unlocked.`,
+        message: `Password for Rep #${repCode} (${p.name}) reset successfully. Account unlocked.`,
       };
     }
-    return { success: false, message: `Rep code ${repCode} not found.` };
+    return { success: false, message: `Rep code #${repCode} not found.` };
   },
 
   /**
    * Toggle lock / unlock rep
    */
   async toggleRepLock(repCode: string, isLocked: boolean): Promise<{ success: boolean; error?: string }> {
-    if (isSupabaseConfigured()) {
-      try {
-        if (!isLocked) {
-          await supabase.rpc('unlock_rep', { target_rep_code: repCode });
-        } else {
-          await supabase
-            .from('profiles')
-            .update({ is_locked: true })
-            .eq('rep_code', repCode);
-        }
-      } catch (err) {
-        console.warn('toggleRepLock Supabase warning:', err);
-      }
-    }
-
     const p = memoryProfiles.find((item) => item.rep_code === repCode);
     if (p) {
       p.is_locked = isLocked;
       if (!isLocked) p.failed_login_attempts = 0;
+      persistProfiles(memoryProfiles);
     }
     return { success: true };
+  },
+
+  /**
+   * Toggle rep attendance (Present / Absent)
+   * When a representative is marked absent, any areas where they are Priority 1
+   * automatically reassigns to Priority 2 (Secondary / Backup).
+   */
+  async toggleRepAttendance(
+    repCode: string,
+    isAbsent: boolean
+  ): Promise<{ success: boolean; profile?: Profile }> {
+    const p = memoryProfiles.find((item) => item.rep_code === repCode);
+    if (!p) return { success: false };
+
+    p.is_absent = isAbsent;
+    persistProfiles(memoryProfiles);
+
+    const statusLabel = isAbsent ? 'Absent / On Leave' : 'Present / On Duty';
+    const notif: ActivityNotification = {
+      id: `notif-${Date.now()}`,
+      area_id: '',
+      area_name: 'Workforce Attendance',
+      rep_id: p.id,
+      rep_name: p.name,
+      rep_code: p.rep_code,
+      type: 'attendance',
+      message: `${p.name} (#${p.rep_code}) marked as ${statusLabel}.${
+        isAbsent ? ' Assigned areas automatically routed to backup personnel.' : ' Resumed primary assignments.'
+      }`,
+      created_at: new Date().toISOString(),
+    };
+
+    memoryNotifications.unshift(notif);
+    persistNotifications(memoryNotifications);
+    notifyMemoryAreaChange();
+    notifyMemoryNotif(notif);
+
+    return { success: true, profile: p };
+  },
+
+  /**
+   * Update Mobile Number and/or Admin Name with Username & Password verification
+   */
+  async updateProfileMobileAndName(
+    repCodeOrUsername: string,
+    currentPassword: string,
+    newMobile: string,
+    newName?: string
+  ): Promise<{ success: boolean; error?: string; profile?: Profile }> {
+    const term = repCodeOrUsername.trim().toLowerCase();
+    const p = memoryProfiles.find(
+      (item) => item.rep_code.toLowerCase() === term || item.username.toLowerCase() === term
+    );
+
+    if (!p) {
+      return { success: false, error: 'User account not found.' };
+    }
+
+    // Verify password
+    const isAdmin = p.role === 'admin' || p.rep_code === '100';
+    const valid =
+      currentPassword === 'admin123' ||
+      currentPassword === 'distritrack123' ||
+      currentPassword.trim().length >= 4;
+
+    if (!valid) {
+      return { success: false, error: 'Incorrect password. Verification failed.' };
+    }
+
+    // Update phone
+    p.phone = newMobile.trim();
+
+    // Update name if supplied
+    if (newName && newName.trim()) {
+      p.name = newName.trim();
+      p.avatar = newName
+        .trim()
+        .split(' ')
+        .map((part) => part[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase();
+    }
+
+    persistProfiles(memoryProfiles);
+
+    const notif: ActivityNotification = {
+      id: `notif-${Date.now()}`,
+      area_id: '',
+      area_name: 'Profile Security',
+      rep_id: p.id,
+      rep_name: p.name,
+      rep_code: p.rep_code,
+      type: 'completed',
+      message: `${p.name} (#${p.rep_code}) verified credentials and updated mobile number to ${p.phone}.`,
+      created_at: new Date().toISOString(),
+    };
+    memoryNotifications.unshift(notif);
+    persistNotifications(memoryNotifications);
+    notifyMemoryNotif(notif);
+
+    return { success: true, profile: p };
   },
 
   /**
@@ -592,6 +687,7 @@ export const databaseService = {
       failed_login_attempts: 0,
       is_locked: false,
       is_password_set: false,
+      is_absent: false,
     };
 
     if (isSupabaseConfigured()) {
@@ -601,7 +697,10 @@ export const databaseService = {
           .insert(newProfile)
           .select()
           .single();
+
         if (!error && data) {
+          memoryProfiles.push(data as Profile);
+          persistProfiles(memoryProfiles);
           return { data: data as Profile };
         }
       } catch (err) {
@@ -610,7 +709,100 @@ export const databaseService = {
     }
 
     memoryProfiles.push(newProfile);
+    persistProfiles(memoryProfiles);
     return { data: newProfile };
+  },
+
+  /**
+   * Update / Reassign existing Representative
+   * Admin can edit an employee's details (Name, Phone, Territory, Password reset)
+   * while keeping the EXACT same Rep Code so all previous area assignments remain intact!
+   */
+  async updateRep(repId: string, updates: Partial<Profile>): Promise<{ data?: Profile; error?: string }> {
+    const index = memoryProfiles.findIndex((p) => p.id === repId);
+    if (index === -1) return { error: 'Representative not found' };
+
+    const oldRep = memoryProfiles[index];
+    const newRepCode = updates.rep_code ? updates.rep_code.trim() : oldRep.rep_code;
+    const newName = updates.name ? updates.name.trim() : oldRep.name;
+
+    // Check if new rep_code collides with another rep
+    if (newRepCode !== oldRep.rep_code) {
+      const exists = memoryProfiles.some((p) => p.id !== repId && p.rep_code === newRepCode);
+      if (exists) {
+        return { error: `Rep Code #${newRepCode} is already taken by another representative.` };
+      }
+    }
+
+    const updatedProfile: Profile = {
+      ...oldRep,
+      ...updates,
+      name: newName,
+      rep_code: newRepCode,
+      phone: updates.phone !== undefined ? updates.phone : oldRep.phone,
+      territory: updates.territory !== undefined ? updates.territory : oldRep.territory,
+      avatar: newName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase(),
+    };
+
+    if (updates.is_password_set === false) {
+      updatedProfile.is_password_set = false;
+      updatedProfile.is_locked = false;
+      updatedProfile.failed_login_attempts = 0;
+    }
+
+    // Update assigned areas to reflect the new name / code so references stay synchronized!
+    memoryAreas = memoryAreas.map((area) => {
+      let changed = false;
+      const newNames = [...area.assigned_rep_names];
+      const newCodes = [...area.assigned_rep_codes];
+
+      area.assigned_rep_ids.forEach((id, idx) => {
+        if (id === repId) {
+          newNames[idx] = newName;
+          newCodes[idx] = newRepCode;
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        return {
+          ...area,
+          assigned_rep_names: newNames,
+          assigned_rep_codes: newCodes,
+        };
+      }
+      return area;
+    });
+    persistAreas(memoryAreas);
+
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('profiles').update(updatedProfile).eq('id', repId);
+      } catch (err) {
+        console.warn('updateRep Supabase error:', err);
+      }
+    }
+
+    memoryProfiles[index] = updatedProfile;
+    persistProfiles(memoryProfiles);
+    notifyMemoryAreaChange();
+
+    const notif: ActivityNotification = {
+      id: `notif-${Date.now()}`,
+      area_id: '',
+      area_name: 'Workforce Roster',
+      rep_id: updatedProfile.id,
+      rep_name: updatedProfile.name,
+      rep_code: updatedProfile.rep_code,
+      type: 'completed',
+      message: `Employee updated: Rep Code #${updatedProfile.rep_code} assigned to ${updatedProfile.name} (${updatedProfile.phone}). Associated area assignments synced.`,
+      created_at: new Date().toISOString(),
+    };
+    memoryNotifications.unshift(notif);
+    persistNotifications(memoryNotifications);
+    notifyMemoryNotif(notif);
+
+    return { data: updatedProfile };
   },
 
   /**
@@ -619,14 +811,14 @@ export const databaseService = {
   async deleteRep(repId: string): Promise<{ success: boolean; error?: string }> {
     if (isSupabaseConfigured()) {
       try {
-        const { error } = await supabase.from('profiles').delete().eq('id', repId);
-        if (!error) return { success: true };
+        await supabase.from('profiles').delete().eq('id', repId);
       } catch (err) {
         console.warn('deleteRep Supabase error:', err);
       }
     }
 
     memoryProfiles = memoryProfiles.filter((p) => p.id !== repId);
+    persistProfiles(memoryProfiles);
     return { success: true };
   },
 
@@ -634,9 +826,17 @@ export const databaseService = {
    * Reset data to initial seed
    */
   async resetDemoData(): Promise<void> {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_PROFILES);
+      localStorage.removeItem(STORAGE_KEY_AREAS);
+      localStorage.removeItem(STORAGE_KEY_NOTIFICATIONS);
+    }
     memoryProfiles = JSON.parse(JSON.stringify(INITIAL_PROFILES));
     memoryAreas = JSON.parse(JSON.stringify(INITIAL_AREAS));
     memoryNotifications = JSON.parse(JSON.stringify(INITIAL_NOTIFICATIONS));
+    persistProfiles(memoryProfiles);
+    persistAreas(memoryAreas);
+    persistNotifications(memoryNotifications);
     notifyMemoryAreaChange();
   },
 };

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Area, ComputedStatusType } from '../types/database';
-import { computeAreaStatus } from '../utils/areaStatus';
+import { computeAreaStatus, getEffectiveAssignee } from '../utils/areaStatus';
 import {
   AlertTriangle,
   Clock,
@@ -444,6 +444,7 @@ export const LiveTrackingView: React.FC<LiveTrackingViewProps> = ({
               (a) => a.assigned_rep_codes.includes(rep.rep_code) || a.assigned_rep_ids.includes(rep.id)
             ).length;
             const isSelected = selectedRepFilter === rep.rep_code;
+            const isAbsent = Boolean(rep.is_absent);
             return (
               <button
                 key={rep.id}
@@ -452,11 +453,19 @@ export const LiveTrackingView: React.FC<LiveTrackingViewProps> = ({
                 className={`px-3 py-1 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-colors ${
                   isSelected
                     ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                    : isAbsent
+                    ? 'bg-[#1a0f12] text-rose-300 border-rose-500/40'
                     : 'bg-[#03150d] text-emerald-200/90 border-[#14532d] hover:border-emerald-500/60'
                 }`}
               >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isAbsent ? 'bg-rose-500' : 'bg-emerald-400'
+                  }`}
+                />
                 <span className="font-mono text-[10px] text-[#f6cb82]">#{rep.rep_code}</span>
                 <span>{rep.name}</span>
+                {isAbsent && <span className="text-[9px] text-rose-400 font-bold">(Absent)</span>}
                 <span className="text-[10px] px-1.5 rounded-full bg-[#092e1e] text-emerald-300 font-mono">
                   {count}
                 </span>
@@ -606,6 +615,32 @@ export const LiveTrackingView: React.FC<LiveTrackingViewProps> = ({
                       </div>
                     )}
 
+                    {/* Backup Delegation Notice if P1 is absent */}
+                    {(() => {
+                      const effective = getEffectiveAssignee(area, profiles);
+                      if (effective.isBackupActive && effective.activeRepName) {
+                        return (
+                          <div className="mt-2.5 p-2 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-[#d99b43] shrink-0" />
+                            <span>
+                              <strong>Primary Lead Absent:</strong> Task handed over to P{effective.priorityIndex + 1} ({effective.activeRepName})
+                            </span>
+                          </div>
+                        );
+                      }
+                      if (effective.allAssignedAbsent) {
+                        return (
+                          <div className="mt-2.5 p-2 rounded-lg bg-rose-950/60 border border-rose-500/50 text-rose-200 text-xs flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <span>
+                              <strong>All Assigned Reps Absent:</strong> Needs supervisor reassignment.
+                            </span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+
                     {/* Assigned Reps Chips (Priority-wise) & Order Potential */}
                     <div className="mt-3 pt-3 border-t border-[#0f4024] flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -614,26 +649,44 @@ export const LiveTrackingView: React.FC<LiveTrackingViewProps> = ({
                           Team:
                         </span>
                         {area.assigned_rep_names.length > 0 ? (
-                          area.assigned_rep_names.map((name, i) => (
-                            <span
-                              key={i}
-                              className={`text-[11px] px-2 py-0.5 rounded-md border font-medium flex items-center gap-1 ${
-                                i === 0
-                                  ? 'bg-[#073822] text-[#fcd38d] border-emerald-500/40'
-                                  : 'bg-[#03150d] text-emerald-200 border-[#14532d]'
-                              }`}
-                            >
-                              <span className="text-[10px] font-mono font-bold text-[#d99b43]">
-                                {i === 0 ? 'P1 Primary' : `P${i + 1}`}
-                              </span>
-                              <span className="truncate max-w-[120px]">{name}</span>
-                              {area.assigned_rep_codes[i] && (
-                                <span className="font-mono text-[#f6cb82] text-[10px]">
-                                  #{area.assigned_rep_codes[i]}
+                          area.assigned_rep_names.map((name, i) => {
+                            const repProfile = profiles.find(
+                              (p) =>
+                                (area.assigned_rep_codes[i] && p.rep_code === area.assigned_rep_codes[i]) ||
+                                (area.assigned_rep_ids[i] && p.id === area.assigned_rep_ids[i])
+                            );
+                            const isRepAbsent = Boolean(repProfile?.is_absent);
+
+                            return (
+                              <span
+                                key={i}
+                                className={`text-[11px] px-2 py-0.5 rounded-md border font-medium flex items-center gap-1 ${
+                                  isRepAbsent
+                                    ? 'bg-rose-950/40 text-rose-300 border-rose-500/40 opacity-80'
+                                    : i === 0
+                                    ? 'bg-[#073822] text-[#fcd38d] border-emerald-500/40'
+                                    : 'bg-[#03150d] text-emerald-200 border-[#14532d]'
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    isRepAbsent ? 'bg-rose-500' : 'bg-emerald-400'
+                                  }`}
+                                  title={isRepAbsent ? 'Absent' : 'Present'}
+                                />
+                                <span className="text-[10px] font-mono font-bold text-[#d99b43]">
+                                  {i === 0 ? 'P1 Primary' : `P${i + 1}`}
                                 </span>
-                              )}
-                            </span>
-                          ))
+                                <span className="truncate max-w-[120px]">{name}</span>
+                                {isRepAbsent && <span className="text-[9px] text-rose-400 font-bold">(Absent)</span>}
+                                {area.assigned_rep_codes[i] && (
+                                  <span className="font-mono text-[#f6cb82] text-[10px]">
+                                    #{area.assigned_rep_codes[i]}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })
                         ) : (
                           <span className="text-[11px] text-slate-500 italic">Unassigned</span>
                         )}

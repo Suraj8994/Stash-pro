@@ -1,8 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Area, Profile, ActivityNotification, ComputedStatusType } from '../types/database';
 import { databaseService } from '../lib/databaseService';
 import { computeAreaStatus } from '../utils/areaStatus';
-import { INITIAL_PROFILES } from '../data/initialData';
 
 interface AppContextType {
   profiles: Profile[];
@@ -20,14 +19,22 @@ interface AppContextType {
   };
   login: (repCode: string, passwordInput: string) => Promise<{ success: boolean; error?: string; isLocked?: boolean }>;
   logout: () => void;
-  setCurrentUser: (profile: Profile | null) => void;
+  setCurrentUser: (user: Profile | null) => void;
   checkIn: (areaId: string, notes: string, orderPotential?: string) => Promise<{ success: boolean; error?: string }>;
   sendReminder: (area: Area) => Promise<{ success: boolean; error?: string }>;
   createArea: (data: Partial<Area>) => Promise<{ success: boolean; error?: string }>;
   updateArea: (id: string, data: Partial<Area>) => Promise<{ success: boolean; error?: string }>;
   deleteArea: (id: string) => Promise<{ success: boolean; error?: string }>;
   addRep: (data: Partial<Profile>) => Promise<{ success: boolean; error?: string }>;
+  updateRep: (id: string, updates: Partial<Profile>) => Promise<{ success: boolean; error?: string }>;
   toggleRepLock: (repCode: string, isLocked: boolean) => Promise<{ success: boolean; error?: string }>;
+  toggleRepAttendance: (repCode: string, isAbsent: boolean) => Promise<{ success: boolean; error?: string }>;
+  updateProfileMobileAndName: (
+    repCodeOrUsername: string,
+    currentPassword: string,
+    newMobile: string,
+    newName?: string
+  ) => Promise<{ success: boolean; error?: string }>;
   deleteRep: (id: string) => Promise<{ success: boolean; error?: string }>;
   resetRepPassword: (repCode: string, newPass: string, masterKey: string) => Promise<{ success: boolean; message: string }>;
   refreshData: () => Promise<void>;
@@ -42,16 +49,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [notifications, setNotifications] = useState<ActivityNotification[]>([]);
-  // Default logged-in user: Admin (Vikram Malhotra #100)
-  const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
-    const savedCode = localStorage.getItem('dt_active_rep_code');
-    if (savedCode) {
-      const match = INITIAL_PROFILES.find((p) => p.rep_code === savedCode);
-      if (match) return match;
-    }
-    return INITIAL_PROFILES[0]; // Admin 100
-  });
-
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRealtimeActive, setIsRealtimeActive] = useState(true);
   const [activeFilterStatus, setActiveFilterStatus] = useState<ComputedStatusType | 'all'>('all');
@@ -64,15 +62,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         databaseService.fetchAreas(),
         databaseService.fetchActivityLog(),
       ]);
+
       setProfiles(fetchedProfiles);
       setAreas(fetchedAreas);
       setNotifications(fetchedNotifs);
 
-      // Keep current user updated
-      if (currentUser) {
-        const updatedSelf = fetchedProfiles.find((p) => p.id === currentUser.id || p.rep_code === currentUser.rep_code);
-        if (updatedSelf) {
-          setCurrentUser(updatedSelf);
+      // Restore active user from localStorage or keep current user in sync
+      const savedCode = typeof window !== 'undefined' ? localStorage.getItem('dt_active_rep_code') : null;
+      if (savedCode) {
+        const match = fetchedProfiles.find((p) => p.rep_code === savedCode);
+        if (match) {
+          setCurrentUser(match);
+        } else if (fetchedProfiles.length > 0) {
+          setCurrentUser(fetchedProfiles[0]);
+        }
+      } else {
+        // Default to Admin (Anil Sakpal)
+        const adminProfile = fetchedProfiles.find((p) => p.role === 'admin') || fetchedProfiles[0];
+        if (adminProfile) {
+          setCurrentUser(adminProfile);
         }
       }
     } catch (err) {
@@ -80,7 +88,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -88,11 +96,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Subscribe to realtime updates
     const unsubscribe = databaseService.subscribeRealtime(
       () => {
-        // Areas changed
         databaseService.fetchAreas().then(setAreas);
+        databaseService.fetchProfiles().then(setProfiles);
       },
       (newNotif) => {
-        // New notification inserted
         setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
       }
     );
@@ -100,9 +107,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [loadData]);
 
-  // Compute status counts for 2x2 metric cards
+  // Compute status counts
   const statusCounts = useMemo(() => {
     let delayed = 0;
     let due_tomorrow = 0;
@@ -131,7 +138,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const res = await databaseService.authenticateRep(repCode, passwordInput);
     if (res.user) {
       setCurrentUser(res.user);
-      localStorage.setItem('dt_active_rep_code', res.user.rep_code);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('dt_active_rep_code', res.user.rep_code);
+      }
       await loadData();
       return { success: true };
     }
@@ -144,7 +153,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('dt_active_rep_code');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('dt_active_rep_code');
+    }
   };
 
   // Field check-in
@@ -152,7 +163,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser) return { success: false, error: 'User not logged in' };
     const res = await databaseService.checkInArea(areaId, currentUser, notes, orderPotential);
     if (res.success) {
-      // Refresh areas
       const updated = await databaseService.fetchAreas();
       setAreas(updated);
       const notifs = await databaseService.fetchActivityLog();
@@ -178,7 +188,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAreas((prev) => [...prev, res.data!]);
       return { success: true };
     }
-    return { success: false, error: res.error || 'Failed to create outlet' };
+    return { success: false, error: res.error || 'Failed to create area' };
   };
 
   const updateArea = async (id: string, data: Partial<Area>) => {
@@ -187,7 +197,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAreas((prev) => prev.map((a) => (a.id === id ? res.data! : a)));
       return { success: true };
     }
-    return { success: false, error: res.error || 'Failed to update outlet' };
+    return { success: false, error: res.error || 'Failed to update area' };
   };
 
   const deleteArea = async (id: string) => {
@@ -196,7 +206,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAreas((prev) => prev.filter((a) => a.id !== id));
       return { success: true };
     }
-    return { success: false, error: res.error || 'Failed to delete outlet' };
+    return { success: false, error: res.error || 'Failed to delete area' };
   };
 
   const addRep = async (data: Partial<Profile>) => {
@@ -206,6 +216,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: true };
     }
     return { success: false, error: res.error || 'Failed to add sales rep' };
+  };
+
+  const updateRep = async (id: string, updates: Partial<Profile>) => {
+    const res = await databaseService.updateRep(id, updates);
+    if (res.data) {
+      setProfiles((prev) => prev.map((p) => (p.id === id ? res.data! : p)));
+      if (currentUser?.id === id) {
+        setCurrentUser(res.data);
+      }
+      // Re-sync areas because area assignments might have updated names/codes
+      const updatedAreas = await databaseService.fetchAreas();
+      setAreas(updatedAreas);
+      return { success: true };
+    }
+    return { success: false, error: res.error || 'Failed to update employee' };
   };
 
   const toggleRepLock = async (repCode: string, isLocked: boolean) => {
@@ -219,6 +244,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: true };
     }
     return { success: false, error: res.error || 'Failed to update lock status' };
+  };
+
+  const toggleRepAttendance = async (repCode: string, isAbsent: boolean) => {
+    const res = await databaseService.toggleRepAttendance(repCode, isAbsent);
+    if (res.success && res.profile) {
+      setProfiles((prev) =>
+        prev.map((p) => (p.rep_code === repCode ? { ...p, is_absent: isAbsent } : p))
+      );
+      if (currentUser?.rep_code === repCode) {
+        setCurrentUser((prev) => (prev ? { ...prev, is_absent: isAbsent } : null));
+      }
+      return { success: true };
+    }
+    return { success: false, error: 'Failed to update attendance' };
+  };
+
+  const updateProfileMobileAndName = async (
+    repCodeOrUsername: string,
+    currentPassword: string,
+    newMobile: string,
+    newName?: string
+  ) => {
+    const res = await databaseService.updateProfileMobileAndName(
+      repCodeOrUsername,
+      currentPassword,
+      newMobile,
+      newName
+    );
+    if (res.success && res.profile) {
+      setProfiles((prev) =>
+        prev.map((p) => (p.rep_code === res.profile!.rep_code ? res.profile! : p))
+      );
+      if (currentUser?.rep_code === res.profile.rep_code) {
+        setCurrentUser(res.profile);
+      }
+      return { success: true };
+    }
+    return { success: false, error: res.error || 'Failed to update profile' };
   };
 
   const deleteRep = async (id: string) => {
@@ -270,7 +333,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateArea,
         deleteArea,
         addRep,
+        updateRep,
         toggleRepLock,
+        toggleRepAttendance,
+        updateProfileMobileAndName,
         deleteRep,
         resetRepPassword,
         refreshData,

@@ -12,6 +12,7 @@ export interface Profile {
   failed_login_attempts: number;
   is_locked: boolean;
   is_password_set: boolean;
+  is_absent?: boolean; // Attendance status: false = Present (On Duty), true = Absent (On Leave)
   created_at?: string;
 }
 
@@ -44,7 +45,7 @@ export interface ActivityNotification {
   rep_id: string | null;
   rep_name: string;
   rep_code: string;
-  type: 'completed' | 'reminder';
+  type: 'completed' | 'reminder' | 'attendance' | 'reassigned';
   message: string;
   created_at: string;
 }
@@ -63,4 +64,14 @@ export interface ComputedAreaStatus {
   formattedDueDate: string;
   isCompletedToday: boolean;
   canSendReminder: boolean;
+}
+
+export interface EffectiveAssigneeResult {
+  activeRepId: string | null;
+  activeRepCode: string | null;
+  activeRepName: string | null;
+  priorityIndex: number; // 0 = P1 (Primary), 1 = P2 (Secondary/Backup)
+  isBackupActive: boolean;
+  absentPredecessors: { name: string; rep_code: string; priority: number }[];
+  allAssignedAbsent: boolean;
 }
