@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --stash-green: #0a4d2e;
+    --stash-green-deep: #062e1b;
+    --stash-green-light: #15803d;
+    --stash-brown: #d99b43;
+    --stash-brown-dark: #b47528;
+    --stash-brown-pale: #fde68a;
+  }
+
+  html, body {
+    background-color: #04130b;
+    color: #f1f5f9;
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* Ensure no child can blow out horizontal bounds */
+#root {
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Custom subtle scrollbar styling */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #04130b;
+}
+::-webkit-scrollbar-thumb {
+  background: #14532d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #16a34a;
+}

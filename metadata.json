@@ -1,0 +1,6 @@
+{
+  "name": "Remix DistriTrack",
+  "description": "Distributor field coverage and sales workforce management app with visit cadence, outlet management, and rep dispatch.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
